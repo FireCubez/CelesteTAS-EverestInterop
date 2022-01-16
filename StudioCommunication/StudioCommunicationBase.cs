@@ -32,9 +32,9 @@ namespace StudioCommunication {
                 using (FileStream f = File.Create(target)) {
                     f.Write(new byte[BufferSize], 0, BufferSize);
                 }
-                Log($"{this} Creating {target}");
+                Log($"{this} Creating CelesteTAS.share");
             } else {
-                Log($"{this} {target} found");
+                Log($"{this} CelesteTAS.share found");
             }
             sharedMemory = MemoryMappedFile.CreateFromFile("./CelesteTAS.share", FileMode.Open);
             mutex = new Mutex(false, "CelesteTASCOM", out bool created);
