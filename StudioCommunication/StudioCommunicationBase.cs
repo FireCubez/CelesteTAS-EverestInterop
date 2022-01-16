@@ -28,8 +28,8 @@ namespace StudioCommunication {
 
         protected StudioCommunicationBase() {
             // CreateFromFile works inter-process on Linux, unlike any of the other MemoryMappedFile.* methods.
-            if (!File.Exists(target)) {
-                using (FileStream f = File.Create(target)) {
+            if (!File.Exists("./CelesteTAS.share")) {
+                using (FileStream f = File.Create("./CelesteTAS.share")) {
                     f.Write(new byte[BufferSize], 0, BufferSize);
                 }
                 Log($"{this} Creating CelesteTAS.share");
