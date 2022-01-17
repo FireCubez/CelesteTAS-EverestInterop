@@ -167,6 +167,10 @@ namespace TAS {
         }
 
         public static void EnableRun() {
+            if (Engine.Scene is GameLoader) {
+                return;
+            }
+
             NextStates &= ~States.Enable;
             InitializeRun(false);
             AttributeUtils.Invoke<EnableRunAttribute>();
@@ -214,7 +218,7 @@ namespace TAS {
         public static void SendStateToStudio() {
             StudioInfo studioInfo = new(
                 Controller.Previous?.Line ?? -1,
-                Controller.CurrentFrameInInput,
+                $"{Controller.CurrentFrameInInput}{Controller.Previous?.RepeatString ?? ""}",
                 Controller.CurrentFrameInTas,
                 Controller.Inputs.Count,
                 Savestates.StudioHighlightLine,

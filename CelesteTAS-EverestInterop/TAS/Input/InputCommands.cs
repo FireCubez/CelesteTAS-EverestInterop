@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Celeste;
+using Celeste.Mod;
 using Microsoft.Xna.Framework;
 using Monocle;
 using TAS.Utils;
@@ -29,7 +30,8 @@ namespace TAS.Input {
             return args.Select(text => text.Trim()).ToArray();
         }
 
-        public static bool TryParseCommand(InputController inputController, string filePath, string lineText, int frame, int lineNumber) {
+        public static bool TryParseCommand(InputController inputController, string filePath, int fileLine, string lineText, int frame,
+            int studioLine) {
             try {
                 if (!string.IsNullOrEmpty(lineText) && char.IsLetter(lineText[0])) {
                     string[] args = Split(lineText);
@@ -46,14 +48,16 @@ namespace TAS.Input {
                     string[] commandArgs = args.Skip(1).ToArray();
 
                     object[] parameters = method.GetParameters().Length switch {
-                        3 => new object[] {commandArgs, inputController, lineNumber},
+                        4 => new object[] {commandArgs, studioLine, filePath, fileLine},
+                        3 => new object[] {commandArgs, studioLine, filePath},
+                        2 => new object[] {commandArgs, studioLine},
                         1 => new object[] {commandArgs},
                         0 => EmptyParameters,
                         _ => throw new ArgumentException()
                     };
 
                     Action commandCall = () => method.Invoke(null, parameters);
-                    Command command = new(attribute, frame, commandCall, commandArgs, filePath, lineNumber);
+                    Command command = new(attribute, frame, commandCall, commandArgs, filePath, studioLine);
 
                     if (attribute.ExecuteTiming == ExecuteTiming.Parse) {
                         commandCall.Invoke();
@@ -76,11 +80,22 @@ namespace TAS.Input {
             }
         }
 
+
+        private static readonly List<string> readCommandStack = new();
+
+        public static void ClearReadCommandStack() {
+            readCommandStack.Clear();
+        }
+
         // "Read, Path",
         // "Read, Path, StartLine",
         // "Read, Path, StartLine, EndLine"
         [TasCommand("Read", ExecuteTiming = ExecuteTiming.Parse)]
-        private static void ReadCommand(string[] args, InputController state, int studioLine) {
+        private static void ReadCommand(string[] args, int studioLine, string currentFilePath, int fileLine) {
+            if (args.Length == 0) {
+                return;
+            }
+
             string filePath = args[0];
             string fileDirectory = Path.GetDirectoryName(InputController.TasFilePath);
             filePath = FindTheFile();
@@ -97,18 +112,23 @@ namespace TAS.Input {
             }
 
             // Find starting and ending lines
-            int skipLines = 0;
-            int lineLen = int.MaxValue;
+            int startLine = 0;
+            int endLine = int.MaxValue;
             if (args.Length > 1) {
-                string startLine = args[1];
-                GetLine(startLine, filePath, out skipLines);
+                GetLine(args[1], filePath, out startLine);
                 if (args.Length > 2) {
-                    string endLine = args[2];
-                    GetLine(endLine, filePath, out lineLen);
+                    GetLine(args[2], filePath, out endLine);
                 }
             }
 
-            state.ReadFile(filePath, skipLines, lineLen, studioLine);
+            readCommandStack.Add($"Read, {string.Join(", ", args)}: line {fileLine} of the file \"{currentFilePath}\"");
+            if (readCommandStack.Count > 233) {
+                $"Multiple read commands lead to dead loops:\n{string.Join("\n", readCommandStack)}".Log(LogLevel.Warn);
+                return;
+            }
+
+            Manager.Controller.ReadFile(filePath, startLine, endLine, studioLine);
+            ClearReadCommandStack();
 
             string FindTheFile() {
                 // Check for full and shortened Read versions
@@ -132,13 +152,18 @@ namespace TAS.Input {
         // "Play, StartLine",
         // "Play, StartLine, FramesToWait"
         [TasCommand("Play", ExecuteTiming = ExecuteTiming.Parse)]
-        private static void PlayCommand(string[] args, InputController state, int studioLine) {
+        private static void PlayCommand(string[] args, int studioLine) {
             GetLine(args[0], InputController.TasFilePath, out int startLine);
             if (args.Length > 1 && int.TryParse(args[1], out _)) {
-                state.AddFrames(args[1], studioLine);
+                Manager.Controller.AddFrames(args[1], studioLine);
             }
 
-            state.ReadFile(InputController.TasFilePath, startLine, int.MaxValue, startLine - 1);
+            if (startLine <= studioLine + 1) {
+                "Play command does not allow playback from before the current line".Log(LogLevel.Warn);
+                return;
+            }
+
+            Manager.Controller.ReadFile(InputController.TasFilePath, startLine, int.MaxValue, startLine - 1);
         }
 
         private static void GetLine(string labelOrLineNumber, string path, out int lineNumber) {
